@@ -8,7 +8,7 @@ export default {
         .setDescription("Claim your daily reward!"),
     execute: async ({ interaction }) => {
         const userId = interaction.user.id;
-        const username = interaction.user.username; // username bilgisini de ekliyoruz
+        const username = interaction.user.username;
         const lastClaimed = await getLastClaimed(userId, username);
         const now = Date.now();
 
@@ -21,8 +21,9 @@ export default {
             );
         } else {
             await giveDailyReward(userId, username);
+
             await interaction.reply(
-                `> You have claimed ${coins} 1000 coins & ${experience} 500 exp as reward, keep it up! ☺︎`
+                `> You have claimed ${coins} 1000 coins & ${experience} 500 exp as a reward. Keep it up! ☺︎`
             );
         }
     },

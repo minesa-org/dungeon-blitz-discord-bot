@@ -47,6 +47,7 @@ export default async (client) => {
                 `[Commands] Started refreshing application (/) commands.`
             );
 
+            // Try to update the commands
             await rest.put(Routes.applicationCommands(clientId), {
                 body: client.commandArray,
             });
@@ -55,7 +56,13 @@ export default async (client) => {
                 `[Commands] Successfully reloaded application (/) commands.`
             );
         } catch (error) {
-            console.error(error);
+            // Suppress the error and log it without crashing
+            if (error.code !== 50240) {
+                // Ignore 50240 errors (Entry Point errors)
+                console.error("Error while updating commands:", error);
+            } else {
+                console.log("Ignored Entry Point update error.");
+            }
         }
     };
 };
