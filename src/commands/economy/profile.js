@@ -62,8 +62,7 @@ function getLevelDetails(exp) {
             const currentLevel = LEVELS[i - 1] || LEVELS[0];
             const nextLevel = LEVELS[i];
             const progress = exp - (currentLevel.expRequired || 0);
-            const expNeeded =
-                nextLevel.expRequired - (currentLevel.expRequired || 0);
+            const expNeeded = nextLevel.expRequired - (currentLevel.expRequired || 0);
             return {
                 level: currentLevel.level,
                 nextLevelExp: expNeeded,
@@ -84,12 +83,12 @@ export default {
                 .setRequired(false)
         ),
     execute: async ({ interaction }) => {
-        const targetUser =
-            interaction.options.getUser("user") || interaction.user;
+        const targetUser = interaction.options.getUser("user") || interaction.user;
         const targetMember = interaction.guild.members.cache.get(targetUser.id);
 
-        const balance = await getUserBalance(targetUser.id);
-        const exp = await getUserExp(targetUser.id);
+        // getUserBalance ve getUserExp fonksiyonlarına username bilgisini de gönderiyoruz.
+        const balance = await getUserBalance(targetUser.id, targetUser.username);
+        const exp = await getUserExp(targetUser.id, targetUser.username);
         const { level, nextLevelExp, progress } = getLevelDetails(exp);
 
         const embed = new EmbedBuilder()

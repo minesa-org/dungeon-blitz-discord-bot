@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+import { TOKEN, DATABASE_URI } from "../config.js";
 import {
     ActivityType,
     Client,
@@ -6,8 +8,18 @@ import {
     Status,
 } from "discord.js";
 import fs from "fs";
-import { TOKEN } from "../config.js";
 
+async function connectToMongoDB() {
+    try {
+        await mongoose.connect(DATABASE_URI);
+        console.log("[Database]: MongoDB bağlantısı başarılı!");
+    } catch (error) {
+        console.error("[Database]: MongoDB bağlantısı başarısız!", error);
+        process.exit(1);
+    }
+}
+
+// Discord botu oluştur
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -33,6 +45,7 @@ client.selectMenus = new Collection();
 client.modals = new Collection();
 client.commandArray = [];
 
+// Fonksiyonları yükle
 async function loadFunctions() {
     const functionFolders = fs.readdirSync("./src/functions");
 
@@ -55,7 +68,9 @@ async function loadFunctions() {
     }
 }
 
+// Botu başlat
 async function initializeBot() {
+    await connectToMongoDB();
     await loadFunctions();
 
     client.handleCommands();

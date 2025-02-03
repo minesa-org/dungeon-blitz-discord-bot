@@ -1,60 +1,68 @@
-import fs from "fs";
-import path from "path";
+import mongoose from "mongoose";
 
-const dataPath = path.resolve("data");
+const userSchema = new mongoose.Schema({
+    userId: { type: String, unique: true, sparse: true },
+    username: String,
+    lastClaimed: Number,
+    balance: { type: Number, default: 0 },
+    exp: { type: Number, default: 0 },
+    lastExpTime: Number,
+});
 
-if (!fs.existsSync(dataPath)) {
-    fs.mkdirSync(dataPath);
-}
+const User = mongoose.model("User", userSchema);
 
-function initializeUserData() {
-    return {
-        username: null,
-        lastClaimed: null,
-        balance: 0,
-        exp: 0,
-        lastExpTime: 0,
-    };
-}
+async function initializeUserData(userId, username = null) {
+    let user = await User.findOne({ userId });
 
-export function getUserData(userId) {
-    const filePath = path.resolve(dataPath, `${userId}.json`);
-    if (!fs.existsSync(filePath)) {
-        return initializeUserData();
+    if (!user && username) {
+        user = await User.findOne({ username, userId: { $exists: false } });
+        if (user) {
+            user.userId = userId;
+            await user.save();
+        }
     }
-    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+
+    if (!user) {
+        user = new User({ userId, username });
+        await user.save();
+    }
+
+    return user;
 }
 
-export function saveUserData(userId, data) {
-    const filePath = path.resolve(dataPath, `${userId}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+export async function getUserData(userId, username = null) {
+    return await initializeUserData(userId, username);
 }
 
-export async function getLastClaimed(userId) {
-    const userData = getUserData(userId);
-    return userData.lastClaimed;
+export async function saveUserData(user) {
+    await user.save();
 }
 
-export async function giveDailyReward(userId) {
+export async function getLastClaimed(userId, username = null) {
+    const user = await getUserData(userId, username);
+    return user.lastClaimed;
+}
+
+export async function giveDailyReward(userId, username = null) {
     const now = Date.now();
-    const userData = getUserData(userId);
+    const user = await getUserData(userId, username);
 
-    userData.lastClaimed = now;
-    userData.balance += 1000;
-    userData.exp += 500;
+    user.lastClaimed = now;
+    user.balance += 1000;
+    user.exp += 500;
 
-    saveUserData(userId, userData);
-    return { balance: userData.balance, exp: userData.exp };
+    await saveUserData(user);
+    return { balance: user.balance, exp: user.exp };
 }
 
-export async function getUserBalance(userId) {
-    const userData = getUserData(userId);
-    return userData.balance;
+export async function getUserBalance(userId, username = null) {
+    const user = await getUserData(userId, username);
+    return user.balance;
 }
 
-export async function getUserExp(userId) {
-    const userData = getUserData(userId);
-    return userData.exp;
+export async function getUserExp(userId, username = null) {
+    const user = await getUserData(userId, username);
+    return user.exp;
 }
 
 export async function addExpOnMessage(
@@ -63,14 +71,14 @@ export async function addExpOnMessage(
     expToAdd = 10,
     cooldownTime = 30000
 ) {
-    const userData = getUserData(userId);
+    const user = await getUserData(userId, username);
 
-    if (!userData.username || userData.username !== username) {
-        userData.username = username;
+    if (!user.username || user.username !== username) {
+        user.username = username;
     }
 
     const now = Date.now();
-    const lastExpTime = userData.lastExpTime || 0;
+    const lastExpTime = user.lastExpTime || 0;
     const timeSinceLastExp = now - lastExpTime;
 
     if (timeSinceLastExp < cooldownTime) {
@@ -80,19 +88,19 @@ export async function addExpOnMessage(
         };
     }
 
-    const previousLevel = calculateLevel(userData.exp);
-    userData.exp += expToAdd;
-    userData.lastExpTime = now;
-    const currentLevel = calculateLevel(userData.exp);
+    const previousLevel = calculateLevel(user.exp);
+    user.exp += expToAdd;
+    user.lastExpTime = now;
+    const currentLevel = calculateLevel(user.exp);
 
-    saveUserData(userId, userData);
+    await saveUserData(user);
 
     const leveledUp = currentLevel > previousLevel;
 
     return {
         success: true,
         expAdded: expToAdd,
-        totalExp: userData.exp,
+        totalExp: user.exp,
         currentLevel,
         previousLevel,
         leveledUp,
@@ -128,7 +136,7 @@ export function calculateLevel(exp) {
     return Math.floor(0.1 * Math.sqrt(exp));
 }
 
-export function getUserLevel(userId) {
-    const userData = getUserData(userId);
-    return calculateLevel(userData.exp);
+export async function getUserLevel(userId, username = null) {
+    const user = await getUserData(userId, username);
+    return calculateLevel(user.exp);
 }
