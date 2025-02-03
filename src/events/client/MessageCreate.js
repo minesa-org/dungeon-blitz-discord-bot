@@ -1,7 +1,7 @@
 import { Events } from "discord.js";
 import { handleUserMessage } from "../../shortcuts/database.js";
 
-const COOLDOWN_TIME = 30000;
+const COOLDOWN_TIME = 3000;
 const EXP_PER_MESSAGE = 10;
 
 export default {
