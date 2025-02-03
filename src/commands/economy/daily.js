@@ -22,7 +22,7 @@ export default {
         } else {
             await giveDailyReward(userId, username);
             await interaction.reply(
-                `> You have claimed ${coins} 1000 coins & ${experience} 50 exp as reward, keep it up! ☺︎`
+                `> You have claimed ${coins} 1000 coins & ${experience} 500 exp as reward, keep it up! ☺︎`
             );
         }
     },
