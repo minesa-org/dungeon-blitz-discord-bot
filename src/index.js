@@ -12,19 +12,19 @@ import fs from "fs";
 async function connectToMongoDB() {
     try {
         await mongoose.connect(DATABASE_URI);
-        console.log("[Database]: MongoDB bağlantısı başarılı!");
+        console.log("[Database]: MongoDB connection successful!");
     } catch (error) {
-        console.error("[Database]: MongoDB bağlantısı başarısız!", error);
+        console.error("[Database]: MongoDB connection failed!", error);
         process.exit(1);
     }
 }
 
-// Discord botu oluştur
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.MessageContent,
     ],
     presence: {
         status: Status.Idle,
@@ -45,7 +45,6 @@ client.selectMenus = new Collection();
 client.modals = new Collection();
 client.commandArray = [];
 
-// Fonksiyonları yükle
 async function loadFunctions() {
     const functionFolders = fs.readdirSync("./src/functions");
 
@@ -68,7 +67,6 @@ async function loadFunctions() {
     }
 }
 
-// Botu başlat
 async function initializeBot() {
     await connectToMongoDB();
     await loadFunctions();
@@ -77,9 +75,12 @@ async function initializeBot() {
     client.handleEvents();
     client.handleComponents();
 
-    client.login(TOKEN).catch((error) => {
-        console.error("Error logging in:", error);
-    });
+    try {
+        await client.login(TOKEN);
+        console.log("[Bot]: Bot başarıyla giriş yaptı!");
+    } catch (error) {
+        console.error("[Bot]: Error logging in:", error);
+    }
 }
 
 initializeBot();

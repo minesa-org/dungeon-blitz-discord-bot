@@ -3,10 +3,10 @@ import mongoose from "mongoose";
 const userSchema = new mongoose.Schema({
     userId: { type: String, unique: true, sparse: true },
     username: String,
-    lastClaimed: Number,
+    lastClaimed: { type: Number, default: Date.now },
     balance: { type: Number, default: 0 },
     exp: { type: Number, default: 0 },
-    lastExpTime: Number,
+    lastExpTime: { type: Number, default: 0 },
 });
 
 const User = mongoose.model("User", userSchema);
@@ -35,7 +35,11 @@ export async function getUserData(userId, username = null) {
 }
 
 export async function saveUserData(user) {
-    await user.save();
+    try {
+        await user.save();
+    } catch (error) {
+        console.error("Error saving user data:", error);
+    }
 }
 
 export async function getLastClaimed(userId, username = null) {
@@ -93,7 +97,12 @@ export async function addExpOnMessage(
     user.lastExpTime = now;
     const currentLevel = calculateLevel(user.exp);
 
-    await saveUserData(user);
+    try {
+        await saveUserData(user);
+    } catch (error) {
+        console.error("Error saving user data:", error);
+        return { success: false, error: "Failed to save user data." };
+    }
 
     const leveledUp = currentLevel > previousLevel;
 
@@ -111,7 +120,7 @@ export async function handleUserMessage(
     userId,
     username,
     expPerMessage = 10,
-    cooldownTime = 30000,
+    cooldownTime = 3000,
     assignRoleFunction = null,
     roleMap = {}
 ) {
