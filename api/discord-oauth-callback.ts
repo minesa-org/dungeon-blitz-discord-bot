@@ -4,12 +4,12 @@ import { updateDiscordMetadata } from "../src/utils/database.js";
 import { discordOAuthConfig } from "../src/utils/oauthConfig.js";
 
 const database = MiniDatabase.fromEnv();
-const failedPage = mini.failedOAuthPage("public/pages/failed.html");
+const failedPage = mini.failedOAuthPage("pages/failed.html");
 
 export default mini.discordOAuthCallback({
 	oauth: discordOAuthConfig,
 	templates: {
-		success: mini.connectedOAuthPage("public/pages/connected.html"),
+		success: mini.connectedOAuthPage("pages/connected.html"),
 		missingCode: failedPage,
 		oauthError: failedPage,
 		invalidState: failedPage,

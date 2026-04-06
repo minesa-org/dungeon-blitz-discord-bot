@@ -8,11 +8,11 @@
 	"functions": {
 		"api/index.ts": {
 			"maxDuration": 10,
-			"includeFiles": "public/pages/verify.html"
+			"includeFiles": "pages/verify.html"
 		},
 		"api/discord-linked-roles/connect.ts": {
 			"maxDuration": 10,
-			"includeFiles": "public/pages/verify.html"
+			"includeFiles": "pages/verify.html"
 		},
 		"api/interactions.ts": {
 			"maxDuration": 10,
@@ -20,7 +20,7 @@
 		},
 		"api/discord-oauth-callback.ts": {
 			"maxDuration": 10,
-			"includeFiles": "{dist/**,public/pages/**}"
+			"includeFiles": "{dist/**,pages/**}"
 		}
 	},
 	"buildCommand": "npm run build",
