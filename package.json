@@ -1,23 +1,31 @@
 {
-    "name": "hector",
-    "version": "1.0.0",
-    "description": "",
-    "main": "index.js",
-    "type": "module",
-    "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1",
-        "dev": "node src/index.js"
-    },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
-    "dependencies": {
-        "cookie-parser": "^1.4.7",
-        "crypto": "^1.0.1",
-        "discord.js": "^14.15.3",
-        "express": "^4.21.2",
-        "mongodb": "^6.13.0",
-        "mongoose": "^8.9.6",
-        "node-fetch": "^3.3.2"
-    }
+	"name": "@minesa-org/mini-app",
+	"version": "1.3.0",
+	"description": "Mini-Interaction <3",
+	"main": "index.js",
+	"scripts": {
+		"mi-latest": "npm i @minesa-org/mini-interaction@latest",
+		"build": "tsx scripts/register.ts",
+		"production": "vercel --prod"
+	},
+	"keywords": [
+		"discord",
+		"app",
+		"template",
+		"http-interaction"
+	],
+	"author": "Neodevils",
+	"license": "",
+	"type": "module",
+	"devDependencies": {
+		"@types/node": "^22.8.1",
+		"tsx": "^4.20.6",
+		"typescript": "^5.9.3"
+	},
+	"dependencies": {
+		"@minesa-org/mini-interaction": "^0.3.9",
+		"@vercel/functions": "^1.6.0",
+		"dotenv": "^17.2.3",
+		"mongodb": "^7.0.0"
+	}
 }

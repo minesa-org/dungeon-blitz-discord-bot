@@ -1,4 +1,6 @@
-.vscode
 node_modules
+/dist
+.env
 .DS_Store
-config.js
+.vercel
+.env*.local
