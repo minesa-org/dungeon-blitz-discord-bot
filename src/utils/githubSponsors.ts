@@ -1,29 +1,8 @@
 const DEFAULT_TARGETS = ["minesa-org", "Neodevils"];
 const GITHUB_GRAPHQL_URL = "https://api.github.com/graphql";
-const DEFAULT_TMS_ALLOWED_USERS = [
-	"Neodevils",
-	"Telahair",
-	"ekmekler",
-	"DarknessGlow",
-	"michii18",
-];
-const DEFAULT_TMS_GITHUB_ORG = "minesa-org";
 
 function normalizeLogin(login: string) {
 	return login.trim().toLowerCase();
-}
-
-function getTmsAllowedUsers(): string[] {
-	const raw = process.env.TMS_ALLOWED_USERS?.trim();
-	if (!raw) return DEFAULT_TMS_ALLOWED_USERS;
-	return raw
-		.split(",")
-		.map((value) => value.trim())
-		.filter(Boolean);
-}
-
-function getTmsGithubOrg(): string {
-	return process.env.TMS_GITHUB_ORG?.trim() ?? DEFAULT_TMS_GITHUB_ORG;
 }
 
 type SponsorsResponse = {
@@ -245,44 +224,6 @@ export async function getSponsorMatch(githubUsername: string) {
 	return { isSponsor: false, matchedTarget: null as string | null };
 }
 
-async function isUserMemberOfOrg(
-	githubUsername: string
-): Promise<boolean> {
-	const token = process.env.GITHUB_TOKEN?.trim();
-	if (!token) {
-		console.warn(
-			"[githubSponsors] GITHUB_TOKEN is not set; TMS org membership check skipped (TMS will be false unless whitelist/contributor grants it)."
-		);
-		return false;
-	}
-
-	const org = getTmsGithubOrg();
-	const normalizedUsername = normalizeLogin(githubUsername);
-
-	const url = `https://api.github.com/orgs/${org}/memberships/${normalizedUsername}`;
-	const response = await fetch(url, {
-		headers: {
-			Authorization: `Bearer ${token}`,
-			"Content-Type": "application/json",
-			"X-GitHub-Api-Version": "2022-11-28",
-		},
-	});
-
-	if (response.status === 204 || response.status === 200) {
-		return true;
-	}
-
-	if (response.status === 404) {
-		return false;
-	}
-
-	const text = await response.text().catch(() => "");
-	console.warn(
-		`[githubSponsors] Org membership check failed (${response.status}): ${text}`
-	);
-	return false;
-}
-
 async function isUserContributorOfPrivateRepo(
 	githubUsername: string
 ): Promise<boolean> {
@@ -349,14 +290,7 @@ async function isUserContributorOfPrivateRepo(
 	return false;
 }
 
-export async function getTmsAndContributorMatch(githubUsername: string) {
-	const tmsAllowed = getTmsAllowedUsers()
-		.map(normalizeLogin)
-		.includes(normalizeLogin(githubUsername));
-
-	const isOrgMember = await isUserMemberOfOrg(githubUsername);
+export async function getContributorMatch(githubUsername: string) {
 	const isContributor = await isUserContributorOfPrivateRepo(githubUsername);
-	const canTms = tmsAllowed || isOrgMember || isContributor;
-
-	return { canTms, isContributor };
+	return { isContributor };
 }

@@ -2,7 +2,7 @@ import { MiniDatabase } from "@minesa-org/mini-interaction";
 import {
 	getDiscordGithubUsername,
 	getSponsorMatch,
-	getTmsAndContributorMatch,
+	getContributorMatch,
 } from "./githubSponsors.js";
 
 /**
@@ -62,8 +62,7 @@ export async function updateDiscordMetadata(
 		matchedTarget: null as string | null,
 	};
 
-	let tmsMatch = {
-		canTms: false,
+	let contributorMatch = {
 		isContributor: false,
 	};
 
@@ -75,10 +74,10 @@ export async function updateDiscordMetadata(
 		}
 
 		try {
-			tmsMatch = await getTmsAndContributorMatch(githubUsername);
+			contributorMatch = await getContributorMatch(githubUsername);
 		} catch (error) {
 			console.error(
-				"[updateDiscordMetadata] Contributor/TMS check failed:",
+				"[updateDiscordMetadata] Contributor check failed:",
 				error
 			);
 		}
@@ -95,8 +94,7 @@ export async function updateDiscordMetadata(
 		githubUsername: githubUsername ?? null,
 		isSponsor: sponsorMatch.isSponsor,
 		sponsorTarget: sponsorMatch.matchedTarget,
-		canTms: tmsMatch.canTms,
-		isContributor: tmsMatch.isContributor,
+		isContributor: contributorMatch.isContributor,
 		lastUpdated: Date.now(),
 	});
 
@@ -105,8 +103,7 @@ export async function updateDiscordMetadata(
 		username: githubUsername ?? null,
 		metadata: {
 			is_sponsor: sponsorMatch.isSponsor ? 1 : 0,
-			tms: tmsMatch.canTms ? 1 : 0,
-			contributor: tmsMatch.isContributor ? 1 : 0,
+			contributor: contributorMatch.isContributor ? 1 : 0,
 		},
 	};
 
