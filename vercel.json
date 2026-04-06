@@ -10,6 +10,10 @@
 			"maxDuration": 10,
 			"includeFiles": "public/pages/verify.html"
 		},
+		"api/discord-linked-roles/connect.ts": {
+			"maxDuration": 10,
+			"includeFiles": "public/pages/verify.html"
+		},
 		"api/interactions.ts": {
 			"maxDuration": 10,
 			"includeFiles": "{src/commands/**,src/components/**,src/utils/**}"

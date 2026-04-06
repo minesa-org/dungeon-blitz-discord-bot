@@ -7,9 +7,25 @@ if (!process.env.DISCORD_BOT_TOKEN) {
 }
 
 const { mini } = await import("../api/interactions");
+const applicationId = process.env.DISCORD_APPLICATION_ID ?? mini.applicationId;
+
+const linkedRoleMetadata = [
+	{
+		key: "is_sponsor",
+		name: "Sponsor",
+		description: "GitHub sponsor of the configured maintainer.",
+		type: 7,
+	},
+	{
+		key: "contributor",
+		name: "Contributor",
+		description: "Contributor of the configured private repository.",
+		type: 7,
+	},
+];
 
 const response = await fetch(
-	`https://discord.com/api/v10/applications/${mini.applicationId}/commands`,
+	`https://discord.com/api/v10/applications/${applicationId}/commands`,
 	{
 		method: "PUT",
 		headers: {
@@ -26,4 +42,22 @@ if (!response.ok) {
 	);
 }
 
-console.log("Command registration reset complete!");
+const metadataResponse = await fetch(
+	`https://discord.com/api/v10/applications/${applicationId}/role-connections/metadata`,
+	{
+		method: "PUT",
+		headers: {
+			Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(linkedRoleMetadata),
+	},
+);
+
+if (!metadataResponse.ok) {
+	throw new Error(
+		`[register] Failed to sync linked role metadata: [${metadataResponse.status}] ${await metadataResponse.text()}`,
+	);
+}
+
+console.log("Command reset and linked role metadata sync complete!");
