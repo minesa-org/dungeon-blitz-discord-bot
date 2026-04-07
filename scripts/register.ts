@@ -13,13 +13,13 @@ const linkedRoleMetadata = [
 	{
 		key: "is_sponsor",
 		name: "Sponsor",
-		description: "GitHub sponsor of the configured maintainer.",
+		description: "GitHub sponsor of The Minesa Studios",
 		type: 7,
 	},
 	{
 		key: "contributor",
 		name: "Contributor",
-		description: "Contributor of the configured private repository.",
+		description: "Contributor of the Dungeon Blitz repository.",
 		type: 7,
 	},
 ];
