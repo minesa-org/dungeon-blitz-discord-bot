@@ -99,7 +99,7 @@ export async function updateDiscordMetadata(
 	});
 
 	const metadata = {
-		platform_name: "GitHub Assistant",
+		platform_name: "Dungeon Blitz",
 		username: githubUsername ?? null,
 		metadata: {
 			is_sponsor: sponsorMatch.isSponsor ? 1 : 0,
