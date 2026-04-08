@@ -215,9 +215,17 @@ export async function getSponsorMatch(githubUsername: string) {
 	const targets = getSponsorTargets();
 
 	for (const target of targets) {
-		const isSponsor = await isUserSponsoringTarget(githubUsername, target);
-		if (isSponsor) {
-			return { isSponsor: true, matchedTarget: target };
+		try {
+			const isSponsor = await isUserSponsoringTarget(githubUsername, target);
+			if (isSponsor) {
+				return { isSponsor: true, matchedTarget: target };
+			}
+		} catch (error) {
+			console.warn(
+				`[githubSponsors] Sponsor check failed for target "${target}": ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			);
 		}
 	}
 
