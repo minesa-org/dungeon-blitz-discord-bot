@@ -10,6 +10,19 @@ import {
  */
 export const db = MiniDatabase.fromEnv();
 
+const MINI_DB_RESERVED_FIELDS = new Set(["createdAt"]);
+
+function asUpdatableRecord(value: unknown): Record<string, unknown> {
+	if (!value || typeof value !== "object") return {};
+
+	const record = value as Record<string, unknown>;
+	return Object.fromEntries(
+		Object.entries(record).filter(
+			([key]) => !MINI_DB_RESERVED_FIELDS.has(key)
+		)
+	);
+}
+
 /**
  * Gets user data from the database.
  */
@@ -26,13 +39,10 @@ export async function getUserData(userId: string) {
  * Sets user's is_miniapp status.
  * Always true. No gating. Everyone connects.
  */
-export async function setUserMiniAppStatus(userId: string) {
+	export async function setUserMiniAppStatus(userId: string) {
 	try {
 		const existing = await db.get(userId).catch(() => null);
-		const base =
-			existing && typeof existing === "object"
-				? (existing as Record<string, unknown>)
-				: {};
+		const base = asUpdatableRecord(existing);
 		return await db.set(userId, {
 			...base,
 			userId,
@@ -84,10 +94,7 @@ export async function updateDiscordMetadata(
 	}
 
 	const existing = await db.get(userId).catch(() => null);
-	const base =
-		existing && typeof existing === "object"
-			? (existing as Record<string, unknown>)
-			: {};
+	const base = asUpdatableRecord(existing);
 
 	await db.set(userId, {
 		...base,
