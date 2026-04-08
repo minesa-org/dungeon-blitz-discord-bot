@@ -49,11 +49,18 @@ function getSponsorTargets(): string[] {
 }
 
 function getGitHubToken() {
+	if (shouldForcePublicSponsors()) {
+		return null;
+	}
 	return process.env.GITHUB_TOKEN?.trim() || null;
 }
 
 function isSponsorDebugEnabled() {
 	return process.env.GITHUB_SPONSOR_DEBUG?.trim().toLowerCase() === "true";
+}
+
+function shouldForcePublicSponsors() {
+	return process.env.GITHUB_SPONSOR_FORCE_PUBLIC?.trim().toLowerCase() === "true";
 }
 
 async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
@@ -152,8 +159,14 @@ async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 	const source = owner?.userSponsorships?.sponsorshipsAsMaintainer
 		? owner.userSponsorships.sponsorshipsAsMaintainer
 		: owner?.organizationSponsorships?.sponsorshipsAsMaintainer;
+	const debug = isSponsorDebugEnabled();
 
 	if (!source) {
+		if (debug) {
+			console.info(
+				`[githubSponsors] Sponsor query returned no sponsorshipsAsMaintainer for "${targetLogin}" (owner type: ${owner?.__typename ?? "unknown"}).`
+			);
+		}
 		return {
 			hasNextPage: false,
 			endCursor: null as string | null,
@@ -231,9 +244,17 @@ export async function getDiscordGithubUsername(accessToken: string) {
 }
 
 export async function getSponsorMatch(githubUsername: string) {
-	if (!process.env.GITHUB_TOKEN?.trim()) {
+	const token = getGitHubToken();
+	if (!token) {
 		console.warn(
-			"[githubSponsors] GITHUB_TOKEN is not set; checking public sponsorships only."
+			shouldForcePublicSponsors()
+				? "[githubSponsors] GITHUB_SPONSOR_FORCE_PUBLIC=true; checking public sponsorships only."
+				: "[githubSponsors] GITHUB_TOKEN is not set; checking public sponsorships only."
+		);
+	}
+	if (isSponsorDebugEnabled()) {
+		console.info(
+			`[githubSponsors] Sponsor check mode: ${token ? "token-authenticated" : "public-only"}.`
 		);
 	}
 
