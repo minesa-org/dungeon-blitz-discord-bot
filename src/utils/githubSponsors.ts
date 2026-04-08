@@ -52,6 +52,10 @@ function getGitHubToken() {
 	return process.env.GITHUB_TOKEN?.trim() || null;
 }
 
+function isSponsorDebugEnabled() {
+	return process.env.GITHUB_SPONSOR_DEBUG?.trim().toLowerCase() === "true";
+}
+
 async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 	const token = getGitHubToken();
 	const query = `
@@ -171,11 +175,20 @@ async function isUserSponsoringTarget(
 	targetLogin: string
 ): Promise<boolean> {
 	const normalizedUsername = githubUsername.toLowerCase();
+	const debug = isSponsorDebugEnabled();
 	let cursor: string | null = null;
 	let pageCount = 0;
 
 	while (pageCount < 20) {
 		const page = await fetchSponsorPage(targetLogin, cursor);
+		if (debug) {
+			const pageNumber = pageCount + 1;
+			console.info(
+				`[githubSponsors] Sponsors page ${pageNumber} for "${targetLogin}": ${
+					page.sponsors.length > 0 ? page.sponsors.join(", ") : "(none)"
+				}`
+			);
+		}
 		if (page.sponsors.includes(normalizedUsername)) {
 			return true;
 		}
