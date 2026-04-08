@@ -7,10 +7,16 @@ function normalizeLogin(login: string) {
 
 type SponsorsResponse = {
 	data?: {
-		repositoryOwner?: SponsorsNode;
+		repositoryOwner?: SponsorsOwner;
 	};
 	errors?: Array<{ message: string }>;
 };
+
+type SponsorsOwner = {
+	__typename?: "User" | "Organization" | string;
+	userSponsorships?: SponsorsNode;
+	organizationSponsorships?: SponsorsNode;
+} | null;
 
 type SponsorsNode = {
 	sponsorshipsAsMaintainer: {
@@ -56,23 +62,48 @@ async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 		) {
 			repositoryOwner(login: $login) {
 				__typename
-				sponsorshipsAsMaintainer(
-					activeOnly: true
-					includePrivate: $includePrivate
-					first: 100
-					after: $cursor
-				) {
-					pageInfo {
-						hasNextPage
-						endCursor
-					}
-					nodes {
-						sponsorEntity {
-							... on User {
-								login
+				... on User {
+					userSponsorships: sponsorshipsAsMaintainer(
+						activeOnly: true
+						includePrivate: $includePrivate
+						first: 100
+						after: $cursor
+					) {
+						pageInfo {
+							hasNextPage
+							endCursor
+						}
+						nodes {
+							sponsorEntity {
+								... on User {
+									login
+								}
+								... on Organization {
+									login
+								}
 							}
-							... on Organization {
-								login
+						}
+					}
+				}
+				... on Organization {
+					organizationSponsorships: sponsorshipsAsMaintainer(
+						activeOnly: true
+						includePrivate: $includePrivate
+						first: 100
+						after: $cursor
+					) {
+						pageInfo {
+							hasNextPage
+							endCursor
+						}
+						nodes {
+							sponsorEntity {
+								... on User {
+									login
+								}
+								... on Organization {
+									login
+								}
 							}
 						}
 					}
@@ -113,7 +144,10 @@ async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 		);
 	}
 
-	const source = payload.data?.repositoryOwner?.sponsorshipsAsMaintainer;
+	const owner = payload.data?.repositoryOwner;
+	const source = owner?.userSponsorships?.sponsorshipsAsMaintainer
+		? owner.userSponsorships.sponsorshipsAsMaintainer
+		: owner?.organizationSponsorships?.sponsorshipsAsMaintainer;
 
 	if (!source) {
 		return {
