@@ -7,8 +7,7 @@ function normalizeLogin(login: string) {
 
 type SponsorsResponse = {
 	data?: {
-		user?: SponsorsNode;
-		organization?: SponsorsNode;
+		repositoryOwner?: SponsorsNode;
 	};
 	errors?: Array<{ message: string }>;
 };
@@ -43,45 +42,23 @@ function getSponsorTargets(): string[] {
 		.filter(Boolean);
 }
 
-function getGitHubToken(): string {
-	const token = process.env.GITHUB_TOKEN?.trim();
-	if (!token) {
-		throw new Error("GITHUB_TOKEN is not configured.");
-	}
-
-	return token;
+function getGitHubToken() {
+	return process.env.GITHUB_TOKEN?.trim() || null;
 }
 
 async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
+	const token = getGitHubToken();
 	const query = `
-		query SponsorsByMaintainer($login: String!, $cursor: String) {
-			user(login: $login) {
+		query SponsorsByMaintainer(
+			$login: String!
+			$cursor: String
+			$includePrivate: Boolean!
+		) {
+			repositoryOwner(login: $login) {
+				__typename
 				sponsorshipsAsMaintainer(
 					activeOnly: true
-					includePrivate: true
-					first: 100
-					after: $cursor
-				) {
-					pageInfo {
-						hasNextPage
-						endCursor
-					}
-					nodes {
-						sponsorEntity {
-							... on User {
-								login
-							}
-							... on Organization {
-								login
-							}
-						}
-					}
-				}
-			}
-			organization(login: $login) {
-				sponsorshipsAsMaintainer(
-					activeOnly: true
-					includePrivate: true
+					includePrivate: $includePrivate
 					first: 100
 					after: $cursor
 				) {
@@ -107,12 +84,16 @@ async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 	const response = await fetch(GITHUB_GRAPHQL_URL, {
 		method: "POST",
 		headers: {
-			Authorization: `Bearer ${getGitHubToken()}`,
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
 			query,
-			variables: { login: targetLogin, cursor: cursor ?? null },
+			variables: {
+				login: targetLogin,
+				cursor: cursor ?? null,
+				includePrivate: Boolean(token),
+			},
 		}),
 	});
 
@@ -132,9 +113,7 @@ async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 		);
 	}
 
-	const source =
-		payload.data?.user?.sponsorshipsAsMaintainer ??
-		payload.data?.organization?.sponsorshipsAsMaintainer;
+	const source = payload.data?.repositoryOwner?.sponsorshipsAsMaintainer;
 
 	if (!source) {
 		return {
@@ -207,9 +186,8 @@ export async function getDiscordGithubUsername(accessToken: string) {
 export async function getSponsorMatch(githubUsername: string) {
 	if (!process.env.GITHUB_TOKEN?.trim()) {
 		console.warn(
-			"[githubSponsors] GITHUB_TOKEN is not set; sponsor check skipped (is_sponsor will be false)."
+			"[githubSponsors] GITHUB_TOKEN is not set; checking public sponsorships only."
 		);
-		return { isSponsor: false, matchedTarget: null as string | null };
 	}
 
 	const targets = getSponsorTargets();
