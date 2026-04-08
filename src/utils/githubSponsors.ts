@@ -7,10 +7,16 @@ function normalizeLogin(login: string) {
 
 type SponsorsResponse = {
 	data?: {
-		repositoryOwner?: SponsorsNode;
+		repositoryOwner?: SponsorsOwner;
 	};
 	errors?: Array<{ message: string }>;
 };
+
+type SponsorsOwner = {
+	__typename?: "User" | "Organization" | string;
+	userSponsorships?: SponsorsNode;
+	organizationSponsorships?: SponsorsNode;
+} | null;
 
 type SponsorsNode = {
 	sponsorshipsAsMaintainer: {
@@ -46,6 +52,10 @@ function getGitHubToken() {
 	return process.env.GITHUB_TOKEN?.trim() || null;
 }
 
+function isSponsorDebugEnabled() {
+	return process.env.GITHUB_SPONSOR_DEBUG?.trim().toLowerCase() === "true";
+}
+
 async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 	const token = getGitHubToken();
 	const query = `
@@ -56,23 +66,48 @@ async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 		) {
 			repositoryOwner(login: $login) {
 				__typename
-				sponsorshipsAsMaintainer(
-					activeOnly: true
-					includePrivate: $includePrivate
-					first: 100
-					after: $cursor
-				) {
-					pageInfo {
-						hasNextPage
-						endCursor
-					}
-					nodes {
-						sponsorEntity {
-							... on User {
-								login
+				... on User {
+					userSponsorships: sponsorshipsAsMaintainer(
+						activeOnly: true
+						includePrivate: $includePrivate
+						first: 100
+						after: $cursor
+					) {
+						pageInfo {
+							hasNextPage
+							endCursor
+						}
+						nodes {
+							sponsorEntity {
+								... on User {
+									login
+								}
+								... on Organization {
+									login
+								}
 							}
-							... on Organization {
-								login
+						}
+					}
+				}
+				... on Organization {
+					organizationSponsorships: sponsorshipsAsMaintainer(
+						activeOnly: true
+						includePrivate: $includePrivate
+						first: 100
+						after: $cursor
+					) {
+						pageInfo {
+							hasNextPage
+							endCursor
+						}
+						nodes {
+							sponsorEntity {
+								... on User {
+									login
+								}
+								... on Organization {
+									login
+								}
 							}
 						}
 					}
@@ -113,7 +148,10 @@ async function fetchSponsorPage(targetLogin: string, cursor?: string | null) {
 		);
 	}
 
-	const source = payload.data?.repositoryOwner?.sponsorshipsAsMaintainer;
+	const owner = payload.data?.repositoryOwner;
+	const source = owner?.userSponsorships?.sponsorshipsAsMaintainer
+		? owner.userSponsorships.sponsorshipsAsMaintainer
+		: owner?.organizationSponsorships?.sponsorshipsAsMaintainer;
 
 	if (!source) {
 		return {
@@ -137,11 +175,20 @@ async function isUserSponsoringTarget(
 	targetLogin: string
 ): Promise<boolean> {
 	const normalizedUsername = githubUsername.toLowerCase();
+	const debug = isSponsorDebugEnabled();
 	let cursor: string | null = null;
 	let pageCount = 0;
 
 	while (pageCount < 20) {
 		const page = await fetchSponsorPage(targetLogin, cursor);
+		if (debug) {
+			const pageNumber = pageCount + 1;
+			console.info(
+				`[githubSponsors] Sponsors page ${pageNumber} for "${targetLogin}": ${
+					page.sponsors.length > 0 ? page.sponsors.join(", ") : "(none)"
+				}`
+			);
+		}
 		if (page.sponsors.includes(normalizedUsername)) {
 			return true;
 		}
