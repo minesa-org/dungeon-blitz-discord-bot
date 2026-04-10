@@ -39,7 +39,7 @@ export async function getUserData(userId: string) {
  * Sets user's is_miniapp status.
  * Always true. No gating. Everyone connects.
  */
-	export async function setUserMiniAppStatus(userId: string) {
+export async function setUserMiniAppStatus(userId: string) {
 	try {
 		const existing = await db.get(userId).catch(() => null);
 		const base = asUpdatableRecord(existing);
@@ -66,6 +66,9 @@ export async function updateDiscordMetadata(
 	await setUserMiniAppStatus(userId);
 
 	const githubUsername = await getDiscordGithubUsername(accessToken);
+	console.info(
+		`[updateDiscordMetadata] Linked roles refresh for Discord user "${userId}" resolved GitHub username: ${githubUsername ?? "(none)"}`
+	);
 
 	let sponsorMatch = {
 		isSponsor: false,
@@ -104,13 +107,16 @@ export async function updateDiscordMetadata(
 		isContributor: contributorMatch.isContributor,
 		lastUpdated: Date.now(),
 	});
+	console.info(
+		`[updateDiscordMetadata] Result for Discord user "${userId}": github="${githubUsername ?? "(none)"}", sponsor=${sponsorMatch.isSponsor}, sponsorTarget=${sponsorMatch.matchedTarget ?? "(none)"}, contributor=${contributorMatch.isContributor}`
+	);
 
 	const metadata = {
 		platform_name: "Dungeon Blitz",
-		username: githubUsername ?? null,
+		platform_username: githubUsername ?? null,
 		metadata: {
-			is_sponsor: sponsorMatch.isSponsor ? 1 : 0,
-			contributor: contributorMatch.isContributor ? 1 : 0,
+			is_sponsor: sponsorMatch.isSponsor ? "1" : "0",
+			contributor: contributorMatch.isContributor ? "1" : "0",
 		},
 	};
 
