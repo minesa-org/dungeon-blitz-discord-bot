@@ -1,7 +1,10 @@
+import { MiniDatabase } from "@minesa-org/mini-interaction";
+
 const DEFAULT_TARGETS = ["minesa-org", "Neodevils"];
 const GITHUB_GRAPHQL_URL = "https://api.github.com/graphql";
 const DEFAULT_SPONSOR_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000;
+const DEFAULT_SPONSOR_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function normalizeLogin(login: string) {
 	return login.trim().toLowerCase();
@@ -53,6 +56,14 @@ type SponsorDirectoryCacheEntry = {
 	expiresAt: number;
 };
 
+type PersistedSponsorDirectory = {
+	targetLogin: string;
+	includePrivate: boolean;
+	viewerLogin: string | null;
+	sponsors: string[];
+	fetchedAt: number;
+};
+
 class GitHubRateLimitError extends Error {
 	retryAt: number;
 
@@ -74,6 +85,7 @@ const sponsorResultCache = new Map<
 >();
 
 let sponsorRateLimitCooldownUntil = 0;
+let sponsorSnapshotDb: MiniDatabase | null | undefined;
 
 function getSponsorTargets(): string[] {
 	const raw = process.env.GITHUB_SPONSOR_TARGETS?.trim();
@@ -111,6 +123,13 @@ function getSponsorRateLimitCooldownMs() {
 	return Number.isFinite(raw) && raw > 0
 		? raw
 		: DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+}
+
+function getSponsorRefreshIntervalMs() {
+	const raw = Number(process.env.GITHUB_SPONSOR_REFRESH_INTERVAL_MS);
+	return Number.isFinite(raw) && raw > 0
+		? raw
+		: DEFAULT_SPONSOR_REFRESH_INTERVAL_MS;
 }
 
 function getSponsorDirectoryCacheKey(targetLogin: string, includePrivate: boolean) {
@@ -164,6 +183,125 @@ function noteRateLimitCooldown(retryAt: number, context: string) {
 	console.warn(
 		`[githubSponsors] Rate limit cooldown active until ${new Date(sponsorRateLimitCooldownUntil).toISOString()} (${context}).`
 	);
+}
+
+function getSponsorSnapshotDb() {
+	if (sponsorSnapshotDb !== undefined) {
+		return sponsorSnapshotDb;
+	}
+
+	try {
+		sponsorSnapshotDb = MiniDatabase.fromEnv();
+		return sponsorSnapshotDb;
+	} catch (error) {
+		console.warn(
+			`[githubSponsors] Sponsor snapshot DB unavailable: ${
+				error instanceof Error ? error.message : String(error)
+			}`
+		);
+		sponsorSnapshotDb = null;
+		return sponsorSnapshotDb;
+	}
+}
+
+function getSponsorSnapshotKey(targetLogin: string, includePrivate: boolean) {
+	return `system:github-sponsors:${getSponsorDirectoryCacheKey(
+		targetLogin,
+		includePrivate
+	)}`;
+}
+
+function toPersistedSponsorDirectory(
+	targetLogin: string,
+	includePrivate: boolean,
+	directory: SponsorDirectory
+): PersistedSponsorDirectory {
+	return {
+		targetLogin: normalizeLogin(targetLogin),
+		includePrivate,
+		viewerLogin: directory.viewerLogin,
+		sponsors: Array.from(directory.sponsors),
+		fetchedAt: Date.now(),
+	};
+}
+
+function fromPersistedSponsorDirectory(
+	value: unknown
+): PersistedSponsorDirectory | null {
+	if (!value || typeof value !== "object") return null;
+
+	const record = value as Record<string, unknown>;
+	const sponsors = Array.isArray(record.sponsors)
+		? record.sponsors.filter((entry): entry is string => typeof entry === "string")
+		: null;
+	const fetchedAt =
+		typeof record.fetchedAt === "number" ? record.fetchedAt : Number(record.fetchedAt);
+
+	if (
+		typeof record.targetLogin !== "string" ||
+		typeof record.includePrivate !== "boolean" ||
+		!sponsors ||
+		!Number.isFinite(fetchedAt)
+	) {
+		return null;
+	}
+
+	return {
+		targetLogin: normalizeLogin(record.targetLogin),
+		includePrivate: record.includePrivate,
+		viewerLogin:
+			typeof record.viewerLogin === "string" ? record.viewerLogin : null,
+		sponsors: sponsors.map(normalizeLogin),
+		fetchedAt,
+	};
+}
+
+function isSponsorSnapshotFresh(snapshot: PersistedSponsorDirectory) {
+	return Date.now() - snapshot.fetchedAt < getSponsorRefreshIntervalMs();
+}
+
+async function loadPersistedSponsorDirectory(
+	targetLogin: string,
+	includePrivate: boolean
+) {
+	const snapshotDb = getSponsorSnapshotDb();
+	if (!snapshotDb) return null;
+
+	const key = getSponsorSnapshotKey(targetLogin, includePrivate);
+	const persisted = fromPersistedSponsorDirectory(await snapshotDb.get(key));
+	if (!persisted) {
+		return null;
+	}
+
+	if (isSponsorDebugEnabled()) {
+		console.info(
+			`[githubSponsors] Loaded sponsor snapshot for "${targetLogin}" (includePrivate=${includePrivate}, fetchedAt=${new Date(persisted.fetchedAt).toISOString()}, sponsorCount=${persisted.sponsors.length}).`
+		);
+	}
+
+	return persisted;
+}
+
+async function savePersistedSponsorDirectory(
+	targetLogin: string,
+	includePrivate: boolean,
+	directory: SponsorDirectory
+) {
+	const snapshotDb = getSponsorSnapshotDb();
+	if (!snapshotDb) return;
+
+	const key = getSponsorSnapshotKey(targetLogin, includePrivate);
+	const persisted = toPersistedSponsorDirectory(
+		targetLogin,
+		includePrivate,
+		directory
+	);
+	const saved = await snapshotDb.set(key, persisted);
+	if (!saved) {
+		console.warn(
+			`[githubSponsors] Failed to persist sponsor snapshot for "${targetLogin}" (includePrivate=${includePrivate}).`
+		);
+	}
 }
 
 function assertRateLimitCooldownInactive() {
@@ -377,6 +515,26 @@ async function getSponsorDirectory(
 		return inflight;
 	}
 
+	const persisted = await loadPersistedSponsorDirectory(targetLogin, includePrivate);
+	if (persisted && isSponsorSnapshotFresh(persisted)) {
+		const directory = {
+			sponsors: new Set(persisted.sponsors),
+			viewerLogin: persisted.viewerLogin,
+		};
+		setCachedResult(
+			sponsorDirectoryCache,
+			cacheKey,
+			directory,
+			getSponsorCacheTtlMs()
+		);
+		if (isSponsorDebugEnabled()) {
+			console.info(
+				`[githubSponsors] Using fresh weekly sponsor snapshot for "${targetLogin}" (includePrivate=${includePrivate}).`
+			);
+		}
+		return directory;
+	}
+
 	const promise = (async () => {
 		assertRateLimitCooldownInactive();
 		const sponsors = new Set<string>();
@@ -419,6 +577,11 @@ async function getSponsorDirectory(
 
 			if (!page.hasNextPage || !page.endCursor) {
 				const directory = { sponsors, viewerLogin };
+				await savePersistedSponsorDirectory(
+					targetLogin,
+					includePrivate,
+					directory
+				);
 				setCachedResult(
 					sponsorDirectoryCache,
 					cacheKey,
@@ -436,6 +599,7 @@ async function getSponsorDirectory(
 			`[githubSponsors] Pagination limit reached while fetching sponsor directory for "${targetLogin}".`
 		);
 		const directory = { sponsors, viewerLogin };
+		await savePersistedSponsorDirectory(targetLogin, includePrivate, directory);
 		setCachedResult(
 			sponsorDirectoryCache,
 			cacheKey,
@@ -447,6 +611,22 @@ async function getSponsorDirectory(
 		.catch((error) => {
 			if (error instanceof GitHubRateLimitError) {
 				noteRateLimitCooldown(error.retryAt, `target="${targetLogin}"`);
+			}
+			if (persisted) {
+				console.warn(
+					`[githubSponsors] Falling back to stale sponsor snapshot for "${targetLogin}" fetched at ${new Date(persisted.fetchedAt).toISOString()}.`
+				);
+				const staleDirectory = {
+					sponsors: new Set(persisted.sponsors),
+					viewerLogin: persisted.viewerLogin,
+				};
+				setCachedResult(
+					sponsorDirectoryCache,
+					cacheKey,
+					staleDirectory,
+					getSponsorCacheTtlMs()
+				);
+				return staleDirectory;
 			}
 			throw error;
 		})
