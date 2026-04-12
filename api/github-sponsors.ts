@@ -76,19 +76,30 @@ export default async function handler(_req: any, res: any) {
 					: latest,
 			null
 		);
+		const totalCount = preferredSnapshots.reduce(
+			(sum, snapshot) => sum + Math.max(snapshot.totalCount ?? snapshot.sponsors.length, 0),
+			0
+		);
+		const publicCount = preferredSnapshots.reduce(
+			(sum, snapshot) =>
+				sum + Math.max(snapshot.publicCount ?? snapshot.sponsors.length, 0),
+			0
+		);
 
 		res.setHeader("Content-Type", "application/json; charset=utf-8");
 		res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=3600");
 		return res.status(200).json({
 			items,
-			totalCount: items.length,
-			publicCount: items.filter((item) => !item.includePrivate).length,
+			totalCount,
+			publicCount,
 			fetchedAt,
 			targets: preferredSnapshots.map((snapshot) => ({
 				targetLogin: snapshot.targetLogin,
 				includePrivate: snapshot.includePrivate,
 				viewerLogin: snapshot.viewerLogin,
 				sponsorCount: snapshot.sponsors.length,
+				totalCount: snapshot.totalCount,
+				publicCount: snapshot.publicCount,
 				fetchedAt: snapshot.fetchedAt,
 				isFresh: snapshot.isFresh,
 			})),

@@ -55,6 +55,8 @@ type HtmlSponsorDirectory = {
 type SponsorDirectory = {
 	sponsors: Set<string>;
 	viewerLogin: string | null;
+	totalCount: number | null;
+	publicCount: number | null;
 };
 
 type SponsorDirectoryCacheEntry = {
@@ -68,6 +70,8 @@ type PersistedSponsorDirectory = {
 	viewerLogin: string | null;
 	sponsors: string[];
 	fetchedAt: number;
+	totalCount: number | null;
+	publicCount: number | null;
 };
 
 export type StoredSponsorSnapshot = {
@@ -77,6 +81,8 @@ export type StoredSponsorSnapshot = {
 	sponsors: string[];
 	fetchedAt: number;
 	isFresh: boolean;
+	totalCount: number | null;
+	publicCount: number | null;
 };
 
 class GitHubRateLimitError extends Error {
@@ -237,6 +243,8 @@ function toPersistedSponsorDirectory(
 		viewerLogin: directory.viewerLogin,
 		sponsors: Array.from(directory.sponsors),
 		fetchedAt: Date.now(),
+		totalCount: directory.totalCount,
+		publicCount: directory.publicCount,
 	};
 }
 
@@ -268,6 +276,14 @@ function fromPersistedSponsorDirectory(
 			typeof record.viewerLogin === "string" ? record.viewerLogin : null,
 		sponsors: sponsors.map(normalizeLogin),
 		fetchedAt,
+		totalCount:
+			record.totalCount === null || typeof record.totalCount === "number"
+				? (record.totalCount as number | null)
+				: null,
+		publicCount:
+			record.publicCount === null || typeof record.publicCount === "number"
+				? (record.publicCount as number | null)
+				: null,
 	};
 }
 
@@ -318,6 +334,8 @@ export async function getStoredSponsorSnapshots(): Promise<StoredSponsorSnapshot
 				sponsors: persisted.sponsors,
 				fetchedAt: persisted.fetchedAt,
 				isFresh: isSponsorSnapshotFresh(persisted),
+				totalCount: persisted.totalCount,
+				publicCount: persisted.publicCount,
 			});
 		}
 	}
@@ -363,6 +381,8 @@ async function getHtmlFallbackSponsorDirectory(
 	return {
 		sponsors: new Set(htmlDirectory.sponsors),
 		viewerLogin,
+		totalCount: htmlDirectory.totalCount,
+		publicCount: htmlDirectory.publicCount,
 	} satisfies SponsorDirectory;
 }
 
@@ -641,15 +661,29 @@ async function getSponsorDirectory(
 		let directory = {
 			sponsors: new Set(persisted.sponsors),
 			viewerLogin: persisted.viewerLogin,
+			totalCount: persisted.totalCount,
+			publicCount: persisted.publicCount,
 		};
-		if (directory.sponsors.size === 0) {
+		if (
+			directory.sponsors.size === 0 ||
+			directory.totalCount === null ||
+			directory.publicCount === null
+		) {
 			try {
 				const htmlFallback = await getHtmlFallbackSponsorDirectory(
 					targetLogin,
 					persisted.viewerLogin
 				);
 				if (htmlFallback) {
-					directory = htmlFallback;
+					directory = {
+						sponsors:
+							directory.sponsors.size > 0
+								? directory.sponsors
+								: htmlFallback.sponsors,
+						viewerLogin: htmlFallback.viewerLogin,
+						totalCount: htmlFallback.totalCount,
+						publicCount: htmlFallback.publicCount,
+					};
 					await savePersistedSponsorDirectory(
 						targetLogin,
 						includePrivate,
@@ -719,7 +753,12 @@ async function getSponsorDirectory(
 			}
 
 			if (!page.hasNextPage || !page.endCursor) {
-				let directory = { sponsors, viewerLogin };
+				let directory: SponsorDirectory = {
+					sponsors,
+					viewerLogin,
+					totalCount: sponsors.size,
+					publicCount: sponsors.size,
+				};
 				if (directory.sponsors.size === 0) {
 					try {
 						const htmlFallback = await getHtmlFallbackSponsorDirectory(
@@ -759,7 +798,12 @@ async function getSponsorDirectory(
 		console.warn(
 			`[githubSponsors] Pagination limit reached while fetching sponsor directory for "${targetLogin}".`
 		);
-		let directory = { sponsors, viewerLogin };
+		let directory: SponsorDirectory = {
+			sponsors,
+			viewerLogin,
+			totalCount: sponsors.size,
+			publicCount: sponsors.size,
+		};
 		if (directory.sponsors.size === 0) {
 			try {
 				const htmlFallback = await getHtmlFallbackSponsorDirectory(
@@ -797,6 +841,8 @@ async function getSponsorDirectory(
 				const staleDirectory = {
 					sponsors: new Set(persisted.sponsors),
 					viewerLogin: persisted.viewerLogin,
+					totalCount: persisted.totalCount,
+					publicCount: persisted.publicCount,
 				};
 				setCachedResult(
 					sponsorDirectoryCache,
