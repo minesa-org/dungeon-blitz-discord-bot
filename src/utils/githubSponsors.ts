@@ -46,6 +46,12 @@ type DiscordConnection = {
 	verified?: boolean;
 };
 
+type HtmlSponsorDirectory = {
+	sponsors: string[];
+	totalCount: number | null;
+	publicCount: number;
+};
+
 type SponsorDirectory = {
 	sponsors: Set<string>;
 	viewerLogin: string | null;
@@ -341,6 +347,25 @@ async function savePersistedSponsorDirectory(
 	}
 }
 
+async function getHtmlFallbackSponsorDirectory(
+	targetLogin: string,
+	viewerLogin: string | null
+) {
+	const htmlDirectory = await fetchPublicSponsorDirectoryFromHtml(targetLogin);
+	if (htmlDirectory.publicCount === 0) {
+		return null;
+	}
+
+	console.info(
+		`[githubSponsors] Falling back to public sponsor HTML for "${targetLogin}" (publicCount=${htmlDirectory.publicCount}, totalCount=${htmlDirectory.totalCount ?? "unknown"}).`
+	);
+
+	return {
+		sponsors: new Set(htmlDirectory.sponsors),
+		viewerLogin,
+	} satisfies SponsorDirectory;
+}
+
 function assertRateLimitCooldownInactive() {
 	if (sponsorRateLimitCooldownUntil > Date.now()) {
 		throw new GitHubRateLimitError(
@@ -384,6 +409,55 @@ function logStoredSponsorDirectory(
 	console.info(
 		`[githubSponsors] Stored sponsor list for "${targetLogin}" (includePrivate=${includePrivate}, count=${directory.sponsors.size}): ${formatSponsorLogins(Array.from(directory.sponsors))}`
 	);
+}
+
+function extractCurrentSponsorsSection(html: string) {
+	const sectionMatch = html.match(
+		/Current sponsors[\s\S]*?<div class="tmp-mt-3 tmp-pb-4" id="sponsors">([\s\S]*?)<\/remote-pagination>/i
+	);
+	return sectionMatch?.[1] ?? null;
+}
+
+async function fetchPublicSponsorDirectoryFromHtml(
+	targetLogin: string
+): Promise<HtmlSponsorDirectory> {
+	const response = await fetch(`https://github.com/sponsors/${targetLogin}`, {
+		headers: {
+			"User-Agent": "dungeon-blitz-discord-bot",
+		},
+	});
+
+	if (!response.ok) {
+		const text = await response.text();
+		throw new Error(
+			`GitHub Sponsors page request failed (${response.status}): ${text}`
+		);
+	}
+
+	const html = await response.text();
+	const totalCountMatch = html.match(
+		/Current sponsors <span title="(\d+)"/i
+	);
+	const section = extractCurrentSponsorsSection(html);
+	if (!section) {
+		return {
+			sponsors: [],
+			totalCount: totalCountMatch ? Number(totalCountMatch[1]) : null,
+			publicCount: 0,
+		};
+	}
+
+	const loginMatches = Array.from(
+		section.matchAll(/href="\/([A-Za-z0-9-]+)"/g),
+		(match) => normalizeLogin(match[1])
+	);
+	const uniqueSponsors = Array.from(new Set(loginMatches));
+
+	return {
+		sponsors: uniqueSponsors,
+		totalCount: totalCountMatch ? Number(totalCountMatch[1]) : null,
+		publicCount: uniqueSponsors.length,
+	};
 }
 
 async function fetchSponsorPage(
@@ -564,10 +638,32 @@ async function getSponsorDirectory(
 
 	const persisted = await loadPersistedSponsorDirectory(targetLogin, includePrivate);
 	if (persisted && isSponsorSnapshotFresh(persisted)) {
-		const directory = {
+		let directory = {
 			sponsors: new Set(persisted.sponsors),
 			viewerLogin: persisted.viewerLogin,
 		};
+		if (directory.sponsors.size === 0) {
+			try {
+				const htmlFallback = await getHtmlFallbackSponsorDirectory(
+					targetLogin,
+					persisted.viewerLogin
+				);
+				if (htmlFallback) {
+					directory = htmlFallback;
+					await savePersistedSponsorDirectory(
+						targetLogin,
+						includePrivate,
+						directory
+					);
+				}
+			} catch (error) {
+				console.warn(
+					`[githubSponsors] Public sponsor HTML fallback failed for fresh snapshot "${targetLogin}": ${
+						error instanceof Error ? error.message : String(error)
+					}`
+				);
+			}
+		}
 		setCachedResult(
 			sponsorDirectoryCache,
 			cacheKey,
@@ -623,7 +719,25 @@ async function getSponsorDirectory(
 			}
 
 			if (!page.hasNextPage || !page.endCursor) {
-				const directory = { sponsors, viewerLogin };
+				let directory = { sponsors, viewerLogin };
+				if (directory.sponsors.size === 0) {
+					try {
+						const htmlFallback = await getHtmlFallbackSponsorDirectory(
+							targetLogin,
+							viewerLogin
+						);
+						if (htmlFallback) {
+							directory = htmlFallback;
+						}
+					} catch (error) {
+						console.warn(
+							`[githubSponsors] Public sponsor HTML fallback failed for "${targetLogin}": ${
+								error instanceof Error ? error.message : String(error)
+							}`
+						);
+					}
+				}
+
 				await savePersistedSponsorDirectory(
 					targetLogin,
 					includePrivate,
@@ -645,7 +759,24 @@ async function getSponsorDirectory(
 		console.warn(
 			`[githubSponsors] Pagination limit reached while fetching sponsor directory for "${targetLogin}".`
 		);
-		const directory = { sponsors, viewerLogin };
+		let directory = { sponsors, viewerLogin };
+		if (directory.sponsors.size === 0) {
+			try {
+				const htmlFallback = await getHtmlFallbackSponsorDirectory(
+					targetLogin,
+					viewerLogin
+				);
+				if (htmlFallback) {
+					directory = htmlFallback;
+				}
+			} catch (error) {
+				console.warn(
+					`[githubSponsors] Public sponsor HTML fallback failed for "${targetLogin}" after pagination cap: ${
+						error instanceof Error ? error.message : String(error)
+					}`
+				);
+			}
+		}
 		await savePersistedSponsorDirectory(targetLogin, includePrivate, directory);
 		setCachedResult(
 			sponsorDirectoryCache,
