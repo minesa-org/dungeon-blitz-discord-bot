@@ -21,6 +21,10 @@
 		"api/discord-oauth-callback.ts": {
 			"maxDuration": 10,
 			"includeFiles": "{dist/**,pages/**}"
+		},
+		"api/github-sponsors.ts": {
+			"maxDuration": 10,
+			"includeFiles": "{src/utils/**}"
 		}
 	},
 	"buildCommand": "npm run build",

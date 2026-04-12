@@ -64,6 +64,15 @@ type PersistedSponsorDirectory = {
 	fetchedAt: number;
 };
 
+export type StoredSponsorSnapshot = {
+	targetLogin: string;
+	includePrivate: boolean;
+	viewerLogin: string | null;
+	sponsors: string[];
+	fetchedAt: number;
+	isFresh: boolean;
+};
+
 class GitHubRateLimitError extends Error {
 	retryAt: number;
 
@@ -280,6 +289,34 @@ async function loadPersistedSponsorDirectory(
 	}
 
 	return persisted;
+}
+
+export async function getStoredSponsorSnapshots(): Promise<StoredSponsorSnapshot[]> {
+	const targets = getSponsorTargets();
+	const snapshots: StoredSponsorSnapshot[] = [];
+
+	for (const targetLogin of targets) {
+		for (const includePrivate of [true, false]) {
+			const persisted = await loadPersistedSponsorDirectory(
+				targetLogin,
+				includePrivate
+			);
+			if (!persisted) {
+				continue;
+			}
+
+			snapshots.push({
+				targetLogin: persisted.targetLogin,
+				includePrivate: persisted.includePrivate,
+				viewerLogin: persisted.viewerLogin,
+				sponsors: persisted.sponsors,
+				fetchedAt: persisted.fetchedAt,
+				isFresh: isSponsorSnapshotFresh(persisted),
+			});
+		}
+	}
+
+	return snapshots.sort((a, b) => b.fetchedAt - a.fetchedAt);
 }
 
 async function savePersistedSponsorDirectory(
