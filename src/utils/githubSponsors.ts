@@ -339,6 +339,16 @@ function logSponsorPageResult(input: {
 	);
 }
 
+function logStoredSponsorDirectory(
+	targetLogin: string,
+	includePrivate: boolean,
+	directory: SponsorDirectory
+) {
+	console.info(
+		`[githubSponsors] Stored sponsor list for "${targetLogin}" (includePrivate=${includePrivate}, count=${directory.sponsors.size}): ${formatSponsorLogins(Array.from(directory.sponsors))}`
+	);
+}
+
 async function fetchSponsorPage(
 	targetLogin: string,
 	options?: {
@@ -643,7 +653,9 @@ async function isUserSponsoringTarget(
 	targetLogin: string
 ): Promise<boolean> {
 	const normalizedUsername = githubUsername.toLowerCase();
+	const includePrivate = Boolean(getGitHubToken());
 	const directory = await getSponsorDirectory(targetLogin);
+	logStoredSponsorDirectory(targetLogin, includePrivate, directory);
 	const isSponsor = directory.sponsors.has(normalizedUsername);
 
 	if (isSponsor) {
