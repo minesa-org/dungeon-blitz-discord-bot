@@ -50,6 +50,9 @@ type HtmlSponsorDirectory = {
 	sponsors: string[];
 	totalCount: number | null;
 	publicCount: number;
+	pastSponsors: string[];
+	pastTotalCount: number | null;
+	pastPublicCount: number;
 };
 
 type SponsorDirectory = {
@@ -57,6 +60,9 @@ type SponsorDirectory = {
 	viewerLogin: string | null;
 	totalCount: number | null;
 	publicCount: number | null;
+	pastSponsors: Set<string>;
+	pastTotalCount: number | null;
+	pastPublicCount: number | null;
 };
 
 type SponsorDirectoryCacheEntry = {
@@ -72,6 +78,9 @@ type PersistedSponsorDirectory = {
 	fetchedAt: number;
 	totalCount: number | null;
 	publicCount: number | null;
+	pastSponsors: string[];
+	pastTotalCount: number | null;
+	pastPublicCount: number | null;
 };
 
 export type StoredSponsorSnapshot = {
@@ -83,6 +92,9 @@ export type StoredSponsorSnapshot = {
 	isFresh: boolean;
 	totalCount: number | null;
 	publicCount: number | null;
+	pastSponsors: string[];
+	pastTotalCount: number | null;
+	pastPublicCount: number | null;
 };
 
 class GitHubRateLimitError extends Error {
@@ -245,6 +257,9 @@ function toPersistedSponsorDirectory(
 		fetchedAt: Date.now(),
 		totalCount: directory.totalCount,
 		publicCount: directory.publicCount,
+		pastSponsors: Array.from(directory.pastSponsors),
+		pastTotalCount: directory.pastTotalCount,
+		pastPublicCount: directory.pastPublicCount,
 	};
 }
 
@@ -283,6 +298,21 @@ function fromPersistedSponsorDirectory(
 		publicCount:
 			record.publicCount === null || typeof record.publicCount === "number"
 				? (record.publicCount as number | null)
+				: null,
+		pastSponsors: Array.isArray(record.pastSponsors)
+			? record.pastSponsors
+					.filter((entry): entry is string => typeof entry === "string")
+					.map(normalizeLogin)
+			: [],
+		pastTotalCount:
+			record.pastTotalCount === null ||
+			typeof record.pastTotalCount === "number"
+				? (record.pastTotalCount as number | null)
+				: null,
+		pastPublicCount:
+			record.pastPublicCount === null ||
+			typeof record.pastPublicCount === "number"
+				? (record.pastPublicCount as number | null)
 				: null,
 	};
 }
@@ -336,6 +366,9 @@ export async function getStoredSponsorSnapshots(): Promise<StoredSponsorSnapshot
 				isFresh: isSponsorSnapshotFresh(persisted),
 				totalCount: persisted.totalCount,
 				publicCount: persisted.publicCount,
+				pastSponsors: persisted.pastSponsors,
+				pastTotalCount: persisted.pastTotalCount,
+				pastPublicCount: persisted.pastPublicCount,
 			});
 		}
 	}
@@ -383,6 +416,9 @@ async function getHtmlFallbackSponsorDirectory(
 		viewerLogin,
 		totalCount: htmlDirectory.totalCount,
 		publicCount: htmlDirectory.publicCount,
+		pastSponsors: new Set(htmlDirectory.pastSponsors),
+		pastTotalCount: htmlDirectory.pastTotalCount,
+		pastPublicCount: htmlDirectory.pastPublicCount,
 	} satisfies SponsorDirectory;
 }
 
@@ -431,9 +467,12 @@ function logStoredSponsorDirectory(
 	);
 }
 
-function extractCurrentSponsorsSection(html: string) {
+function extractSponsorsSection(html: string, heading: "Current sponsors" | "Past sponsors") {
 	const sectionMatch = html.match(
-		/Current sponsors[\s\S]*?<div class="tmp-mt-3 tmp-pb-4" id="sponsors">([\s\S]*?)<\/remote-pagination>/i
+		new RegExp(
+			`${heading}[\\s\\S]*?<div class="tmp-mt-3 tmp-pb-4" id="sponsors">([\\s\\S]*?)<\\/remote-pagination>`,
+			"i"
+		)
 	);
 	return sectionMatch?.[1] ?? null;
 }
@@ -458,25 +497,40 @@ async function fetchPublicSponsorDirectoryFromHtml(
 	const totalCountMatch = html.match(
 		/Current sponsors <span title="(\d+)"/i
 	);
-	const section = extractCurrentSponsorsSection(html);
-	if (!section) {
+	const pastTotalCountMatch = html.match(
+		/Past sponsors <span title="(\d+)"/i
+	);
+	const currentSection = extractSponsorsSection(html, "Current sponsors");
+	const pastSection = extractSponsorsSection(html, "Past sponsors");
+	if (!currentSection) {
 		return {
 			sponsors: [],
 			totalCount: totalCountMatch ? Number(totalCountMatch[1]) : null,
 			publicCount: 0,
+			pastSponsors: [],
+			pastTotalCount: pastTotalCountMatch ? Number(pastTotalCountMatch[1]) : null,
+			pastPublicCount: 0,
 		};
 	}
 
 	const loginMatches = Array.from(
-		section.matchAll(/href="\/([A-Za-z0-9-]+)"/g),
+		currentSection.matchAll(/href="\/([A-Za-z0-9-]+)"/g),
+		(match) => normalizeLogin(match[1])
+	);
+	const pastLoginMatches = Array.from(
+		(pastSection ?? "").matchAll(/href="\/([A-Za-z0-9-]+)"/g),
 		(match) => normalizeLogin(match[1])
 	);
 	const uniqueSponsors = Array.from(new Set(loginMatches));
+	const uniquePastSponsors = Array.from(new Set(pastLoginMatches));
 
 	return {
 		sponsors: uniqueSponsors,
 		totalCount: totalCountMatch ? Number(totalCountMatch[1]) : null,
 		publicCount: uniqueSponsors.length,
+		pastSponsors: uniquePastSponsors,
+		pastTotalCount: pastTotalCountMatch ? Number(pastTotalCountMatch[1]) : null,
+		pastPublicCount: uniquePastSponsors.length,
 	};
 }
 
@@ -663,11 +717,16 @@ async function getSponsorDirectory(
 			viewerLogin: persisted.viewerLogin,
 			totalCount: persisted.totalCount,
 			publicCount: persisted.publicCount,
+			pastSponsors: new Set(persisted.pastSponsors),
+			pastTotalCount: persisted.pastTotalCount,
+			pastPublicCount: persisted.pastPublicCount,
 		};
 		if (
 			directory.sponsors.size === 0 ||
 			directory.totalCount === null ||
-			directory.publicCount === null
+			directory.publicCount === null ||
+			directory.pastTotalCount === null ||
+			directory.pastPublicCount === null
 		) {
 			try {
 				const htmlFallback = await getHtmlFallbackSponsorDirectory(
@@ -683,6 +742,12 @@ async function getSponsorDirectory(
 						viewerLogin: htmlFallback.viewerLogin,
 						totalCount: htmlFallback.totalCount,
 						publicCount: htmlFallback.publicCount,
+						pastSponsors:
+							directory.pastSponsors.size > 0
+								? directory.pastSponsors
+								: htmlFallback.pastSponsors,
+						pastTotalCount: htmlFallback.pastTotalCount,
+						pastPublicCount: htmlFallback.pastPublicCount,
 					};
 					await savePersistedSponsorDirectory(
 						targetLogin,
@@ -758,6 +823,9 @@ async function getSponsorDirectory(
 					viewerLogin,
 					totalCount: sponsors.size,
 					publicCount: sponsors.size,
+					pastSponsors: new Set<string>(),
+					pastTotalCount: 0,
+					pastPublicCount: 0,
 				};
 				if (directory.sponsors.size === 0) {
 					try {
@@ -803,6 +871,9 @@ async function getSponsorDirectory(
 			viewerLogin,
 			totalCount: sponsors.size,
 			publicCount: sponsors.size,
+			pastSponsors: new Set<string>(),
+			pastTotalCount: 0,
+			pastPublicCount: 0,
 		};
 		if (directory.sponsors.size === 0) {
 			try {
@@ -843,6 +914,9 @@ async function getSponsorDirectory(
 					viewerLogin: persisted.viewerLogin,
 					totalCount: persisted.totalCount,
 					publicCount: persisted.publicCount,
+					pastSponsors: new Set(persisted.pastSponsors),
+					pastTotalCount: persisted.pastTotalCount,
+					pastPublicCount: persisted.pastPublicCount,
 				};
 				setCachedResult(
 					sponsorDirectoryCache,

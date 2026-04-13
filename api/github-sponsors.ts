@@ -35,10 +35,21 @@ function pickPreferredSnapshots(snapshots: StoredSponsorSnapshot[]) {
 }
 
 function buildItems(snapshots: StoredSponsorSnapshot[]): SponsorItem[] {
+	return buildItemsFromSnapshots(snapshots, "sponsors");
+}
+
+function buildPastItems(snapshots: StoredSponsorSnapshot[]): SponsorItem[] {
+	return buildItemsFromSnapshots(snapshots, "pastSponsors");
+}
+
+function buildItemsFromSnapshots(
+	snapshots: StoredSponsorSnapshot[],
+	field: "sponsors" | "pastSponsors"
+) {
 	const sponsors = new Map<string, SponsorItem>();
 
 	for (const snapshot of snapshots) {
-		for (const login of snapshot.sponsors) {
+		for (const login of snapshot[field]) {
 			const normalized = login.trim().toLowerCase();
 			const existing = sponsors.get(normalized);
 			if (existing) {
@@ -69,6 +80,7 @@ export default async function handler(_req: any, res: any) {
 		const snapshots = await getStoredSponsorSnapshots();
 		const preferredSnapshots = pickPreferredSnapshots(snapshots);
 		const items = buildItems(preferredSnapshots);
+		const pastItems = buildPastItems(preferredSnapshots);
 		const fetchedAt = preferredSnapshots.reduce<number | null>(
 			(latest, snapshot) =>
 				latest === null || snapshot.fetchedAt > latest
@@ -85,13 +97,28 @@ export default async function handler(_req: any, res: any) {
 				sum + Math.max(snapshot.publicCount ?? snapshot.sponsors.length, 0),
 			0
 		);
+		const pastTotalCount = preferredSnapshots.reduce(
+			(sum, snapshot) =>
+				sum +
+				Math.max(snapshot.pastTotalCount ?? snapshot.pastSponsors.length, 0),
+			0
+		);
+		const pastPublicCount = preferredSnapshots.reduce(
+			(sum, snapshot) =>
+				sum +
+				Math.max(snapshot.pastPublicCount ?? snapshot.pastSponsors.length, 0),
+			0
+		);
 
 		res.setHeader("Content-Type", "application/json; charset=utf-8");
 		res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=3600");
 		return res.status(200).json({
 			items,
+			pastItems,
 			totalCount,
 			publicCount,
+			pastTotalCount,
+			pastPublicCount,
 			fetchedAt,
 			targets: preferredSnapshots.map((snapshot) => ({
 				targetLogin: snapshot.targetLogin,
@@ -100,6 +127,9 @@ export default async function handler(_req: any, res: any) {
 				sponsorCount: snapshot.sponsors.length,
 				totalCount: snapshot.totalCount,
 				publicCount: snapshot.publicCount,
+				pastSponsorCount: snapshot.pastSponsors.length,
+				pastTotalCount: snapshot.pastTotalCount,
+				pastPublicCount: snapshot.pastPublicCount,
 				fetchedAt: snapshot.fetchedAt,
 				isFresh: snapshot.isFresh,
 			})),
