@@ -1,6 +1,7 @@
 import { MiniDatabase } from "@minesa-org/mini-interaction";
 
-const DEFAULT_TARGETS = ["minesa-org", "Neodevils"];
+const DEFAULT_TARGETS = ["minesa-org"];
+const MANUAL_PAST_SPONSORS = ["darknessglow", "neodevils"];
 const GITHUB_GRAPHQL_URL = "https://api.github.com/graphql";
 const DEFAULT_SPONSOR_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000;
@@ -33,6 +34,7 @@ type SponsorsNode = {
 			endCursor: string | null;
 		};
 		nodes: Array<{
+			isActive: boolean;
 			sponsorEntity: {
 				login: string;
 			} | null;
@@ -366,9 +368,9 @@ export async function getStoredSponsorSnapshots(): Promise<StoredSponsorSnapshot
 				isFresh: isSponsorSnapshotFresh(persisted),
 				totalCount: persisted.totalCount,
 				publicCount: persisted.publicCount,
-				pastSponsors: persisted.pastSponsors,
-				pastTotalCount: persisted.pastTotalCount,
-				pastPublicCount: persisted.pastPublicCount,
+				pastSponsors: Array.from(new Set([...persisted.pastSponsors, ...MANUAL_PAST_SPONSORS])),
+				pastTotalCount: Math.max(persisted.pastTotalCount ?? 0, persisted.pastSponsors.length + MANUAL_PAST_SPONSORS.length),
+				pastPublicCount: Math.max(persisted.pastPublicCount ?? 0, persisted.pastSponsors.length + MANUAL_PAST_SPONSORS.length),
 			});
 		}
 	}
@@ -558,7 +560,7 @@ async function fetchSponsorPage(
 				__typename
 				... on User {
 					userSponsorships: sponsorshipsAsMaintainer(
-						activeOnly: true
+						activeOnly: false
 						includePrivate: $includePrivate
 						first: 100
 						after: $cursor
@@ -568,6 +570,7 @@ async function fetchSponsorPage(
 							endCursor
 						}
 						nodes {
+							isActive
 							sponsorEntity {
 								... on User {
 									login
@@ -581,7 +584,7 @@ async function fetchSponsorPage(
 				}
 				... on Organization {
 					organizationSponsorships: sponsorshipsAsMaintainer(
-						activeOnly: true
+						activeOnly: false
 						includePrivate: $includePrivate
 						first: 100
 						after: $cursor
@@ -591,6 +594,7 @@ async function fetchSponsorPage(
 							endCursor
 						}
 						nodes {
+							isActive
 							sponsorEntity {
 								... on User {
 									login
@@ -671,6 +675,7 @@ async function fetchSponsorPage(
 			endCursor: null as string | null,
 			viewerLogin: payload.data?.viewer?.login ?? null,
 			sponsors: [] as string[],
+			pastSponsors: [] as string[],
 		};
 	}
 
@@ -679,25 +684,34 @@ async function fetchSponsorPage(
 		endCursor: source.pageInfo.endCursor,
 		viewerLogin: payload.data?.viewer?.login ?? null,
 		sponsors: source.nodes
+			.filter((node) => node.isActive)
+			.map((node) => node.sponsorEntity?.login?.toLowerCase())
+			.filter((login): login is string => Boolean(login)),
+		pastSponsors: source.nodes
+			.filter((node) => !node.isActive)
 			.map((node) => node.sponsorEntity?.login?.toLowerCase())
 			.filter((login): login is string => Boolean(login)),
 	};
 }
 
 async function getSponsorDirectory(
-	targetLogin: string
+	targetLogin: string,
+	forceRefresh: boolean = false
 ): Promise<SponsorDirectory> {
 	const token = getGitHubToken();
 	const includePrivate = Boolean(token);
 	const cacheKey = getSponsorDirectoryCacheKey(targetLogin, includePrivate);
-	const cached = getCachedResult(sponsorDirectoryCache, cacheKey);
-	if (cached) {
-		if (isSponsorDebugEnabled()) {
-			console.info(
-				`[githubSponsors] Sponsor directory cache hit for "${targetLogin}" (includePrivate=${includePrivate}).`
-			);
+	
+	if (!forceRefresh) {
+		const cached = getCachedResult(sponsorDirectoryCache, cacheKey);
+		if (cached) {
+			if (isSponsorDebugEnabled()) {
+				console.info(
+					`[githubSponsors] Sponsor directory cache hit for "${targetLogin}" (includePrivate=${includePrivate}).`
+				);
+			}
+			return cached;
 		}
-		return cached;
 	}
 
 	const inflight = sponsorDirectoryInflight.get(cacheKey);
@@ -711,7 +725,7 @@ async function getSponsorDirectory(
 	}
 
 	const persisted = await loadPersistedSponsorDirectory(targetLogin, includePrivate);
-	if (persisted && isSponsorSnapshotFresh(persisted)) {
+	if (!forceRefresh && persisted && isSponsorSnapshotFresh(persisted)) {
 		let directory = {
 			sponsors: new Set(persisted.sponsors),
 			viewerLogin: persisted.viewerLogin,
@@ -780,6 +794,7 @@ async function getSponsorDirectory(
 	const promise = (async () => {
 		assertRateLimitCooldownInactive();
 		const sponsors = new Set<string>();
+		const pastSponsors = new Set<string>();
 		let viewerLogin: string | null = null;
 		let cursor: string | null = null;
 		let pageNumber = 1;
@@ -816,6 +831,9 @@ async function getSponsorDirectory(
 			for (const sponsor of page.sponsors) {
 				sponsors.add(sponsor);
 			}
+			for (const pastSponsor of page.pastSponsors) {
+				pastSponsors.add(pastSponsor);
+			}
 
 			if (!page.hasNextPage || !page.endCursor) {
 				let directory: SponsorDirectory = {
@@ -823,9 +841,9 @@ async function getSponsorDirectory(
 					viewerLogin,
 					totalCount: sponsors.size,
 					publicCount: sponsors.size,
-					pastSponsors: new Set<string>(),
-					pastTotalCount: 0,
-					pastPublicCount: 0,
+					pastSponsors,
+					pastTotalCount: pastSponsors.size,
+					pastPublicCount: pastSponsors.size,
 				};
 				if (directory.sponsors.size === 0) {
 					try {
@@ -871,9 +889,9 @@ async function getSponsorDirectory(
 			viewerLogin,
 			totalCount: sponsors.size,
 			publicCount: sponsors.size,
-			pastSponsors: new Set<string>(),
-			pastTotalCount: 0,
-			pastPublicCount: 0,
+			pastSponsors,
+			pastTotalCount: pastSponsors.size,
+			pastPublicCount: pastSponsors.size,
 		};
 		if (directory.sponsors.size === 0) {
 			try {
@@ -941,10 +959,29 @@ async function isUserSponsoringTarget(
 	targetLogin: string
 ): Promise<boolean> {
 	const normalizedUsername = githubUsername.toLowerCase();
+
+	if (MANUAL_PAST_SPONSORS.includes(normalizedUsername)) {
+		console.info(`[githubSponsors] Matched manual past sponsor "${normalizedUsername}" for target "${targetLogin}".`);
+		return true;
+	}
+
 	const includePrivate = Boolean(getGitHubToken());
-	const directory = await getSponsorDirectory(targetLogin);
+	let directory = await getSponsorDirectory(targetLogin);
+	let isSponsor =
+		directory.sponsors.has(normalizedUsername) ||
+		directory.pastSponsors.has(normalizedUsername);
+
+	if (!isSponsor) {
+		console.info(
+			`[githubSponsors] Sponsor "${normalizedUsername}" not found in snapshot for "${targetLogin}". Force refreshing...`
+		);
+		directory = await getSponsorDirectory(targetLogin, true);
+		isSponsor =
+			directory.sponsors.has(normalizedUsername) ||
+			directory.pastSponsors.has(normalizedUsername);
+	}
+
 	logStoredSponsorDirectory(targetLogin, includePrivate, directory);
-	const isSponsor = directory.sponsors.has(normalizedUsername);
 
 	if (isSponsor) {
 		console.info(
