@@ -48,6 +48,28 @@ type DiscordConnection = {
 	verified?: boolean;
 };
 
+type RepositoryCommit = {
+	author?: {
+		login?: string;
+	} | null;
+	committer?: {
+		login?: string;
+	} | null;
+	commit?: {
+		message?: string;
+		author?: {
+			email?: string;
+		};
+		committer?: {
+			email?: string;
+		};
+	};
+};
+
+type CommitSearchResponse = {
+	items?: RepositoryCommit[];
+};
+
 type HtmlSponsorDirectory = {
 	sponsors: string[];
 	totalCount: number | null;
@@ -438,6 +460,31 @@ function formatSponsorLogins(logins: string[], limit = 20) {
 	if (logins.length <= limit) return logins.join(", ");
 
 	return `${logins.slice(0, limit).join(", ")} ... (+${logins.length - limit} more)`;
+}
+
+function isGitHubNoreplyEmailForLogin(email: string, normalizedUsername: string) {
+	const normalizedEmail = email.trim().toLowerCase();
+	return (
+		normalizedEmail === `${normalizedUsername}@users.noreply.github.com` ||
+		normalizedEmail.endsWith(`+${normalizedUsername}@users.noreply.github.com`)
+	);
+}
+
+function hasCoAuthorTrailerForLogin(
+	message: string | undefined,
+	normalizedUsername: string
+) {
+	if (!message) return false;
+
+	const coAuthorTrailerPattern = /^co-authored-by:\s*.+?<([^>]+)>/gim;
+	for (const match of message.matchAll(coAuthorTrailerPattern)) {
+		const email = match[1];
+		if (email && isGitHubNoreplyEmailForLogin(email, normalizedUsername)) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 function logSponsorPageResult(input: {
@@ -1114,12 +1161,14 @@ async function isUserContributorOfPrivateRepo(
 		"dungeon-blitz-r";
 
 	const normalizedUsername = normalizeLogin(githubUsername);
+	const encodedOwner = encodeURIComponent(owner);
+	const encodedRepo = encodeURIComponent(repo);
 
 	const perPage = 100;
 	let page = 1;
 
 	while (page <= 10) {
-		const url = `https://api.github.com/repos/${owner}/${repo}/contributors?per_page=${perPage}&anon=0&page=${page}`;
+		const url = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/contributors?per_page=${perPage}&anon=0&page=${page}`;
 
 		const response = await fetch(url, {
 			headers: {
@@ -1141,7 +1190,7 @@ async function isUserContributorOfPrivateRepo(
 		}>;
 
 		if (!Array.isArray(contributors) || contributors.length === 0) {
-			return false;
+			break;
 		}
 
 		if (
@@ -1154,10 +1203,41 @@ async function isUserContributorOfPrivateRepo(
 
 		const link = response.headers.get("link") ?? "";
 		if (!link.includes('rel="next"')) {
-			return false;
+			break;
 		}
 
 		page += 1;
+	}
+
+	const commitSearchQuery = encodeURIComponent(
+		`repo:${owner}/${repo} ${normalizedUsername}`
+	);
+	const commitSearchResponse = await fetch(
+		`https://api.github.com/search/commits?q=${commitSearchQuery}&per_page=10`,
+		{
+			headers: {
+				Authorization: `Bearer ${token}`,
+				Accept: "application/vnd.github+json",
+				"Content-Type": "application/json",
+			},
+		}
+	);
+
+	if (!commitSearchResponse.ok) {
+		const text = await commitSearchResponse.text();
+		console.error(
+			`[githubSponsors] Commit co-author search failed (${commitSearchResponse.status}): ${text}`
+		);
+		return false;
+	}
+
+	const commitSearch = (await commitSearchResponse.json()) as CommitSearchResponse;
+	if (
+		commitSearch.items?.some((commit) =>
+			hasCoAuthorTrailerForLogin(commit.commit?.message, normalizedUsername)
+		)
+	) {
+		return true;
 	}
 
 	return false;
